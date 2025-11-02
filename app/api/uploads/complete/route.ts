@@ -1,9 +1,9 @@
 // API Route: POST /api/uploads/complete
-// Verifies upload to R2 and triggers validation pipeline
+// Queues upload verification job (instant response)
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/services/db';
-import { initiateUploadVerification } from '@/lib/services/uploadProcessor';
+import { verifyQueue } from '@/lib/queues/verifyQueue';
 import { toAppError } from '@/lib/errors/AppError';
 import { logger } from '@/lib/utils/logger';
 
@@ -31,32 +31,38 @@ export async function POST(request: NextRequest) {
 
     imageId = validation.data.imageId;
 
-    // Verify image exists
+    // Verify image exists and get r2Key
     const image = await prisma.image.findUnique({
       where: { id: imageId },
-      select: { id: true, status: true },
+      select: { id: true, r2Key: true, status: true },
     });
 
     if (!image) {
       return NextResponse.json({ error: 'Image not found' }, { status: 404 });
     }
 
-    // Initiate upload verification with idempotent state transition
-    // This function uses atomic updateMany to ensure idempotency
-    const result = await initiateUploadVerification(imageId);
+    // Idempotent: Only queue if in AWAITING_UPLOAD state
+    if (image.status === 'AWAITING_UPLOAD') {
+      // Queue the verification job (instant return)
+      await verifyQueue.add('verify-upload', {
+        imageId: image.id,
+        r2Key: image.r2Key,
+      });
 
-    // Return appropriate response based on whether processing was started
-    if (result.started) {
+      logger.info('Verification job queued', { imageId });
+
       return NextResponse.json({
         imageId,
-        status: result.currentStatus,
-        message: 'Upload verification started',
+        status: 'VERIFYING',
+        message: 'Verification queued',
       });
     } else {
-      // Idempotent response: already processing or completed
+      // Already queued or processing
+      logger.info('Upload already processing', { imageId, currentStatus: image.status });
+
       return NextResponse.json({
         imageId,
-        status: result.currentStatus,
+        status: image.status,
         message: 'Upload already processing or completed',
       });
     }

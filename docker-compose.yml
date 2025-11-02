@@ -21,9 +21,26 @@ services:
     networks:
       - aragon-network
 
+  redis:
+    container_name: aragon-image-upload-redis
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - '${REDIS_PORT:-6379}:6379'
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - aragon-network
+
 networks:
   aragon-network:
     driver: bridge
 
 volumes:
   db_data:
+  redis_data:

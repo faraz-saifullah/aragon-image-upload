@@ -394,8 +394,8 @@ export function UploadSection({ onUploadComplete, onStatusUpdate }: UploadSectio
                     <div className="flex flex-row items-center justify-center gap-2">
                       {(uploadFile.status === 'uploading' ||
                         uploadFile.status === 'processing') && (
-                          <div className="h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-solid border-l-stone-200 border-r-orange-500 border-t-orange-500 border-b-orange-500" />
-                        )}
+                        <div className="h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-solid border-l-stone-200 border-r-orange-500 border-t-orange-500 border-b-orange-500" />
+                      )}
                       {uploadFile.status === 'error' && (
                         <>
                           {/* Retry Icon */}

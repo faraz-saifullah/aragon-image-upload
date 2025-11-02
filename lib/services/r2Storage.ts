@@ -34,23 +34,41 @@ export async function generatePresignedUploadUrl(
 }
 
 /**
- * Verify that an object exists in R2 using HeadObject
- * Returns true if object exists, false otherwise
+ * Object metadata returned from R2
  */
-export async function verifyObjectExists(key: string): Promise<boolean> {
+export interface R2ObjectMetadata {
+  exists: boolean;
+  contentLength?: number;
+  contentType?: string;
+  lastModified?: Date;
+  etag?: string;
+}
+
+/**
+ * Verify that an object exists in R2 using HeadObject
+ * Returns metadata including file size
+ */
+export async function verifyObjectExists(key: string): Promise<R2ObjectMetadata> {
   try {
     const command = new HeadObjectCommand({
       Bucket: env.S3_BUCKET,
       Key: key,
     });
 
-    await r2Client.send(command);
-    return true;
+    const response = await r2Client.send(command);
+
+    return {
+      exists: true,
+      contentLength: response.ContentLength,
+      contentType: response.ContentType,
+      lastModified: response.LastModified,
+      etag: response.ETag,
+    };
   } catch (error: unknown) {
     // If error has a name property and it's NotFound, return false
     if (error && typeof error === 'object' && 'name' in error) {
       if (error.name === 'NotFound' || error.name === 'NoSuchKey') {
-        return false;
+        return { exists: false };
       }
     }
     // Re-throw other errors
@@ -61,17 +79,18 @@ export async function verifyObjectExists(key: string): Promise<boolean> {
 /**
  * Retry verification with exponential backoff
  * This handles R2's eventual consistency
+ * Returns metadata including file size, or exists: false if not found
  */
 export async function verifyWithRetry(
   key: string,
   maxAttempts: number = env.MAX_VERIFICATION_ATTEMPTS,
   delayMs: number = env.VERIFICATION_RETRY_DELAY_MS
-): Promise<boolean> {
+): Promise<R2ObjectMetadata> {
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    const exists = await verifyObjectExists(key);
+    const metadata = await verifyObjectExists(key);
 
-    if (exists) {
-      return true;
+    if (metadata.exists) {
+      return metadata;
     }
 
     // Don't delay after the last attempt
@@ -80,5 +99,5 @@ export async function verifyWithRetry(
     }
   }
 
-  return false;
+  return { exists: false };
 }

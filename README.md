@@ -108,14 +108,14 @@ AWAITING_UPLOAD → VERIFYING → PROCESSING → ACCEPTED
 └──────────────────────────→ UPLOAD_FAILED
 ```
 
-| State               | Description                              | Next States                       |
-| ------------------- | ---------------------------------------- | --------------------------------- |
-| `AWAITING_UPLOAD` | Presigned URL issued, awaiting upload    | `VERIFYING`                     |
+| State             | Description                              | Next States                   |
+| ----------------- | ---------------------------------------- | ----------------------------- |
+| `AWAITING_UPLOAD` | Presigned URL issued, awaiting upload    | `VERIFYING`                   |
 | `VERIFYING`       | Checking upload completion in R2         | `PROCESSING`, `UPLOAD_FAILED` |
 | `PROCESSING`      | Running validation pipeline              | `ACCEPTED`, `REJECTED`        |
-| `ACCEPTED`        | All validations passed                   | Final state                       |
-| `REJECTED`        | One or more validations failed           | Final state                       |
-| `UPLOAD_FAILED`   | Upload verification failed after retries | Final state                       |
+| `ACCEPTED`        | All validations passed                   | Final state                   |
+| `REJECTED`        | One or more validations failed           | Final state                   |
+| `UPLOAD_FAILED`   | Upload verification failed after retries | Final state                   |
 
 ---
 

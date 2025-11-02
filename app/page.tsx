@@ -1,12 +1,33 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { UploadSection } from '@/components/UploadSection';
 import { UploadedImagesPanel } from '@/components/UploadedImagesPanel';
+import { UserSwitcher } from '@/components/UserSwitcher';
 import { ImageMetadata } from '@/lib/types/image';
+
+interface User {
+  id: string;
+  name: string;
+  email: string;
+  avatar: string | null;
+}
 
 export default function Home() {
   const [images, setImages] = useState<ImageMetadata[]>([]);
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+
+  // Load first user on mount
+  useEffect(() => {
+    fetch('/api/users')
+      .then((res) => res.json())
+      .then((users) => {
+        if (users.length > 0) {
+          setCurrentUser(users[0]);
+        }
+      })
+      .catch((err) => console.error('Failed to load users:', err));
+  }, []);
 
   const handleUploadComplete = useCallback((newImage: ImageMetadata) => {
     setImages((prev) => [newImage, ...prev]);
@@ -26,7 +47,7 @@ export default function Home() {
       style={{ background: 'white' }}
     >
       {/* Header */}
-      <div className="sticky h-14 w-full border-b border-solid border-slate-200 shadow-sm">
+      <div className="sticky h-14 w-full border-b border-solid border-slate-200 shadow-sm z-50">
         <header className="max-w-[1400px] mx-auto flex h-full items-center justify-between px-8">
           {/* Logo */}
           <div className="flex flex-row items-center justify-center hover:cursor-pointer">
@@ -90,6 +111,9 @@ export default function Home() {
             </div>
             <div className="ml-3 text-xl font-semibold text-black">Aragon.ai</div>
           </div>
+
+          {/* User Switcher */}
+          <UserSwitcher currentUser={currentUser} onUserChange={setCurrentUser} />
         </header>
       </div>
 

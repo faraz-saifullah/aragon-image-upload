@@ -19,6 +19,17 @@ enum ImageStatus {
   UPLOAD_FAILED    // Upload verification failed after retries
 }
 
+model User {
+  id        String   @id @default(uuid())
+  name      String
+  email     String   @unique
+  avatar    String?  // Avatar URL or emoji
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  images    Image[]
+}
+
 model Image {
   id              String      @id @default(uuid())
   filename        String
@@ -27,6 +38,10 @@ model Image {
   fileSize        Int?        // in bytes
   width           Int?
   height          Int?
+  
+  // User relation
+  userId          String
+  user            User        @relation(fields: [userId], references: [id], onDelete: Cascade)
   
   // Storage information
   r2Key           String      @unique  // Key in R2 bucket
@@ -53,8 +68,8 @@ model Image {
   updatedAt       DateTime    @updatedAt
   processedAt     DateTime?
   
+  @@index([userId])
   @@index([status])
   @@index([createdAt])
   @@index([phash])
 }
-
