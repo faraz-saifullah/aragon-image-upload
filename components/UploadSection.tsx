@@ -40,31 +40,104 @@ export function UploadSection({ onUploadComplete, onStatusUpdate }: UploadSectio
     return null;
   };
 
+  // Concurrency control
+  const activeUploadsRef = useRef<number>(0);
+  const MAX_CONCURRENT_UPLOADS = 10;
+
+  const uploadFile = useCallback(
+    async (file: File, key: string) => {
+      const error = validateFile(file);
+
+      if (error) {
+        setUploadingFiles((prev) =>
+          new Map(prev).set(key, {
+            file,
+            preview: URL.createObjectURL(file),
+            status: 'error',
+            error,
+          })
+        );
+        return;
+      }
+
+      try {
+        activeUploadsRef.current += 1;
+
+        // Upload to R2
+        const imageId = await uploadImageToR2(file, () => {
+          // Progress callback - not displayed in UI
+        });
+
+        // Upload complete, now processing
+        setUploadingFiles((prev) => {
+          const current = prev.get(key);
+          if (current) {
+            return new Map(prev).set(key, {
+              ...current,
+              status: 'processing',
+              imageId,
+            });
+          }
+          return prev;
+        });
+
+        // Poll for status
+        pollImageStatus(
+          imageId,
+          (image) => {
+            // Complete - remove from uploading list
+            setUploadingFiles((prev) => {
+              const newMap = new Map(prev);
+              newMap.delete(key);
+              return newMap;
+            });
+            onUploadComplete(image);
+          },
+          (image) => {
+            onStatusUpdate(image);
+            if (image.status === 'REJECTED' || image.status === 'UPLOAD_FAILED') {
+              setUploadingFiles((prev) => {
+                const newMap = new Map(prev);
+                newMap.delete(key);
+                return newMap;
+              });
+            }
+          }
+        );
+      } catch (error) {
+        console.error(`Upload error for ${file.name}:`, error);
+        setUploadingFiles((prev) => {
+          const current = prev.get(key);
+          if (current) {
+            return new Map(prev).set(key, {
+              ...current,
+              status: 'error',
+              error: error instanceof Error ? error.message : 'Upload failed',
+            });
+          }
+          return prev;
+        });
+      } finally {
+        activeUploadsRef.current -= 1;
+      }
+    },
+    [onUploadComplete, onStatusUpdate]
+  );
+
   const handleFiles = useCallback(
     async (files: FileList | null) => {
       if (!files) return;
 
       const filesToUpload = Array.from(files);
+      const queue: Array<{ file: File; key: string }> = [];
 
-      for (const file of filesToUpload) {
-        const error = validateFile(file);
-        const key = `${file.name}-${Date.now()}`;
+      // Add all files to UI immediately
+      filesToUpload.forEach((file) => {
+        const key = `${file.name}-${Date.now()}-${Math.random()}`;
         const preview = URL.createObjectURL(file);
+        queue.push({ file, key });
 
-        if (error) {
-          // Show error in UI
-          setUploadingFiles((prev) =>
-            new Map(prev).set(key, {
-              file,
-              preview,
-              status: 'error',
-              error,
-            })
-          );
-          continue;
-        }
-
-        // Add to uploading files
+        // Show pending state
         setUploadingFiles((prev) =>
           new Map(prev).set(key, {
             file,
@@ -72,69 +145,68 @@ export function UploadSection({ onUploadComplete, onStatusUpdate }: UploadSectio
             status: 'uploading',
           })
         );
+      });
 
-        try {
-          // Upload to R2 (progress callback no longer needed for UI)
-          const imageId = await uploadImageToR2(file, () => {
-            // Progress callback - not displayed in UI
-          });
-
-          // Upload complete, now processing
-          setUploadingFiles((prev) => {
-            const current = prev.get(key);
-            if (current) {
-              return new Map(prev).set(key, {
-                ...current,
-                status: 'processing',
-                imageId,
-              });
+      // Process queue with concurrency control
+      const processQueue = async () => {
+        while (queue.length > 0) {
+          if (activeUploadsRef.current < MAX_CONCURRENT_UPLOADS) {
+            const item = queue.shift();
+            if (item) {
+              uploadFile(item.file, item.key);
             }
-            return prev;
-          });
-
-          // Poll for status and remove from uploading when complete
-          pollImageStatus(
-            imageId,
-            (image) => {
-              // Remove from uploading files when accepted
-              setUploadingFiles((prev) => {
-                const newMap = new Map(prev);
-                newMap.delete(key);
-                return newMap;
-              });
-              onUploadComplete(image);
-            },
-            (image) => {
-              // Keep showing status during processing
-              onStatusUpdate(image);
-
-              // Remove from uploading files when rejected or failed
-              if (image.status === 'REJECTED' || image.status === 'UPLOAD_FAILED') {
-                setUploadingFiles((prev) => {
-                  const newMap = new Map(prev);
-                  newMap.delete(key);
-                  return newMap;
-                });
-              }
-            }
-          );
-        } catch (error) {
-          console.error(`Upload error for ${file.name}:`, error);
-          setUploadingFiles((prev) => {
-            const current = prev.get(key);
-            if (current) {
-              return new Map(prev).set(key, {
-                ...current,
-                status: 'error',
-                error: error instanceof Error ? error.message : 'Upload failed',
-              });
-            }
-            return prev;
-          });
+          } else {
+            // Wait a bit before checking again
+            await new Promise((resolve) => setTimeout(resolve, 100));
+          }
         }
-      }
+      };
+
+      processQueue();
     },
-    [onUploadComplete, onStatusUpdate]
+    [uploadFile]
+  );
+
+  const handleRemove = useCallback((key: string) => {
+    setUploadingFiles((prev) => {
+      const newMap = new Map(prev);
+      const file = newMap.get(key);
+      if (file?.preview) {
+        URL.revokeObjectURL(file.preview);
+      }
+      newMap.delete(key);
+      return newMap;
+    });
+  }, []);
+
+  const handleRetry = useCallback(
+    (key: string, file: File) => {
+      // Remove old entry and upload again with new key
+      setUploadingFiles((prev) => {
+        const newMap = new Map(prev);
+        const oldFile = newMap.get(key);
+        if (oldFile?.preview) {
+          URL.revokeObjectURL(oldFile.preview);
+        }
+        newMap.delete(key);
+        return newMap;
+      });
+
+      // Create new key and retry
+      const newKey = `${file.name}-${Date.now()}-${Math.random()}`;
+      const preview = URL.createObjectURL(file);
+
+      setUploadingFiles((prev) =>
+        new Map(prev).set(newKey, {
+          file,
+          preview,
+          status: 'uploading',
+        })
+      );
+
+      uploadFile(file, newKey);
+    },
+    [uploadFile]
   );
 
   const handleDrop = useCallback(
@@ -318,24 +390,54 @@ export function UploadSection({ onUploadComplete, onStatusUpdate }: UploadSectio
                       </div>
                     </div>
 
-                    {/* Right side: Spinner */}
-                    <div className="flex flex-row items-center justify-center gap-1">
+                    {/* Right side: Spinner / Error Actions */}
+                    <div className="flex flex-row items-center justify-center gap-2">
                       {(uploadFile.status === 'uploading' ||
                         uploadFile.status === 'processing') && (
-                          <div className="mr-2 h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-solid border-l-stone-200 border-r-orange-500 border-t-orange-500 border-b-orange-500" />
+                          <div className="h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-solid border-l-stone-200 border-r-orange-500 border-t-orange-500 border-b-orange-500" />
                         )}
                       {uploadFile.status === 'error' && (
-                        <svg
-                          className="mr-2 h-5 w-5 text-red-500"
-                          fill="currentColor"
-                          viewBox="0 0 20 20"
-                        >
-                          <path
-                            fillRule="evenodd"
-                            d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"
-                            clipRule="evenodd"
-                          />
-                        </svg>
+                        <>
+                          {/* Retry Icon */}
+                          <button
+                            onClick={() => handleRetry(key, uploadFile.file)}
+                            className="transition-colors hover:text-orange-600"
+                            title="Retry upload"
+                          >
+                            <svg
+                              className="h-5 w-5 text-orange-500"
+                              fill="none"
+                              stroke="currentColor"
+                              viewBox="0 0 24 24"
+                            >
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth={2}
+                                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                              />
+                            </svg>
+                          </button>
+
+                          {/* Remove Icon */}
+                          <button
+                            onClick={() => handleRemove(key)}
+                            className="transition-colors hover:text-red-700"
+                            title="Remove"
+                          >
+                            <svg
+                              className="h-5 w-5 text-red-500"
+                              fill="currentColor"
+                              viewBox="0 0 20 20"
+                            >
+                              <path
+                                fillRule="evenodd"
+                                d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"
+                                clipRule="evenodd"
+                              />
+                            </svg>
+                          </button>
+                        </>
                       )}
                     </div>
                   </div>
