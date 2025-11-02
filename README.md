@@ -2,6 +2,54 @@
 
 A production-quality image upload and validation platform built for the Aragon.ai technical challenge. Features presigned URL uploads to Cloudflare R2, comprehensive image validation, and a modern React UI.
 
+> **📹 Loom Walkthrough**: _(Link to be added after recording)_  
+> **🔗 GitHub Repository**: https://github.com/your-username/aragon-image-upload
+
+---
+
+## ⚡ Quick Start
+
+```bash
+# 1. Install dependencies
+npm install
+
+# 2. Copy and configure environment variables
+cp env.example .env
+# Edit .env with your Cloudflare R2 credentials
+
+# 3. Start PostgreSQL
+npm run db:up
+
+# 4. Run database migrations
+npm run migrate
+
+# 5. Start the development server
+npm run dev
+```
+
+Then open [http://localhost:3000](http://localhost:3000) in your browser.
+
+> **Note**: You'll need to configure your Cloudflare R2 credentials in `.env` for uploads to work. See [Setup Instructions](#-setup-instructions) for details.
+
+---
+
+## 📖 Table of Contents
+
+- [Quick Start](#-quick-start)
+- [Project Overview](#-project-overview)
+- [Architecture](#-architecture)
+- [Setup Instructions](#-setup-instructions)
+- [Testing](#-testing)
+- [Project Structure](#-project-structure)
+- [Technology Stack](#-technology-stack)
+- [Security Considerations](#-security-considerations)
+- [Design Decisions & Tradeoffs](#-design-decisions--tradeoffs)
+- [Validation Pipeline](#-validation-pipeline)
+- [API Endpoints](#-api-endpoints)
+- [Known Limitations & Future Improvements](#-known-limitations--future-improvements)
+
+---
+
 ## 🎯 Project Overview
 
 This application allows users to upload images which are automatically validated against multiple criteria:
@@ -29,7 +77,7 @@ This application allows users to upload images which are automatically validated
 
 ### Flow Diagram
 
-\`\`\`
+```
 ┌─────────────┐ 1. Request Presigned URL ┌─────────────┐
 │ │ ──────────────────────────────> │ │
 │ Frontend │ │ Backend │
@@ -48,26 +96,26 @@ This application allows users to upload images which are automatically validated
 │ │
 │ 8. Poll for status updates │
 │ <──────────────────────────────────────────── │
-\`\`\`
+```
 
 ### State Machine
 
-\`\`\`
+```
 AWAITING_UPLOAD → VERIFYING → PROCESSING → ACCEPTED
 │
 └──→ REJECTED
 │
 └──────────────────────────→ UPLOAD_FAILED
-\`\`\`
+```
 
 | State               | Description                              | Next States                       |
 | ------------------- | ---------------------------------------- | --------------------------------- |
-| \`AWAITING_UPLOAD\` | Presigned URL issued, awaiting upload    | \`VERIFYING\`                     |
-| \`VERIFYING\`       | Checking upload completion in R2         | \`PROCESSING\`, \`UPLOAD_FAILED\` |
-| \`PROCESSING\`      | Running validation pipeline              | \`ACCEPTED\`, \`REJECTED\`        |
-| \`ACCEPTED\`        | All validations passed                   | Final state                       |
-| \`REJECTED\`        | One or more validations failed           | Final state                       |
-| \`UPLOAD_FAILED\`   | Upload verification failed after retries | Final state                       |
+| `AWAITING_UPLOAD` | Presigned URL issued, awaiting upload    | `VERIFYING`                     |
+| `VERIFYING`       | Checking upload completion in R2         | `PROCESSING`, `UPLOAD_FAILED` |
+| `PROCESSING`      | Running validation pipeline              | `ACCEPTED`, `REJECTED`        |
+| `ACCEPTED`        | All validations passed                   | Final state                       |
+| `REJECTED`        | One or more validations failed           | Final state                       |
+| `UPLOAD_FAILED`   | Upload verification failed after retries | Final state                       |
 
 ---
 
@@ -81,28 +129,25 @@ AWAITING_UPLOAD → VERIFYING → PROCESSING → ACCEPTED
 
 ### 1. Clone and Install Dependencies
 
-\`\`\`bash
+```bash
 npm install
-\`\`\`
+```
 
 ### 2. Configure Environment Variables
 
 Copy the example environment file and configure your settings:
 
-\`\`\`bash
+```bash
 cp env.example .env
-\`\`\`
+```
 
-Edit \`.env\` with your configuration:
+Edit `.env` with your configuration:
 
-\`\`\`env
-
+```env
 # Database
-
 DATABASE_URL=postgresql://dev:devpassword@localhost:5432/aragon_dev?schema=public
 
 # Cloudflare R2 Configuration
-
 S3_ENDPOINT=https://<YOUR_ACCOUNT_ID>.r2.cloudflarestorage.com
 S3_BUCKET=aragon-uploads
 AWS_ACCESS_KEY_ID=<YOUR_ACCESS_KEY>
@@ -110,7 +155,6 @@ AWS_SECRET_ACCESS_KEY=<YOUR_SECRET_KEY>
 S3_REGION=auto
 
 # Validation Settings
-
 MAX_UPLOAD_SIZE_BYTES=8000000
 MIN_WIDTH=400
 MIN_HEIGHT=400
@@ -118,28 +162,27 @@ MIN_FILE_SIZE_BYTES=51200
 PHASH_THRESHOLD=10
 
 # Upload Verification
-
 MAX_VERIFICATION_ATTEMPTS=3
 VERIFICATION_RETRY_DELAY_MS=5000
-\`\`\`
+```
 
 ### 3. Start PostgreSQL
 
-\`\`\`bash
+```bash
 npm run db:up
-\`\`\`
+```
 
 ### 4. Run Database Migrations
 
-\`\`\`bash
+```bash
 npm run migrate
-\`\`\`
+```
 
 ### 5. Start Development Server
 
-\`\`\`bash
+```bash
 npm run dev
-\`\`\`
+```
 
 The application will be available at [http://localhost:3000](http://localhost:3000)
 
@@ -149,52 +192,65 @@ The application will be available at [http://localhost:3000](http://localhost:30
 
 Run the integration test suite:
 
-\`\`\`bash
+```bash
 npm test
-\`\`\`
+```
 
 With coverage:
 
-\`\`\`bash
+```bash
 npm run test:coverage
-\`\`\`
+```
 
 ---
 
 ## 📁 Project Structure
 
-\`\`\`
+```
 aragon-image-upload/
-├── app/ # Next.js app directory
-│ ├── api/ # API routes
-│ │ ├── uploads/
-│ │ │ ├── sign/route.ts # POST: Generate presigned URL
-│ │ │ └── complete/route.ts # POST: Complete upload & trigger validation
-│ │ └── images/
-│ │ ├── route.ts # GET: Fetch all images
-│ │ └── [id]/route.ts # GET: Fetch single image status
-│ ├── layout.tsx # Root layout
-│ └── page.tsx # Main upload page
-├── components/ # React components
-│ ├── ImageUploader.tsx # Drag-drop upload component
-│ ├── ImageGallery.tsx # Image grid display
-│ └── ImageCard.tsx # Individual image card with status
+├── app/                              # Next.js app directory
+│   ├── api/                          # API routes
+│   │   ├── uploads/
+│   │   │   ├── sign/route.ts        # POST: Generate presigned URL
+│   │   │   └── complete/route.ts    # POST: Complete upload & trigger validation
+│   │   └── images/
+│   │       ├── route.ts              # GET: Fetch all images
+│   │       └── [id]/route.ts         # GET: Fetch single image status
+│   ├── layout.tsx                    # Root layout
+│   └── page.tsx                      # Main upload page
+├── components/                       # React components
+│   ├── UploadSection.tsx            # Upload area with drag-drop
+│   ├── UploadedImagesPanel.tsx      # Image gallery with status
+│   ├── PhotoRequirements.tsx        # Requirements display
+│   ├── PhotoRestrictions.tsx        # Restrictions display
+│   ├── icons/                        # SVG icon components
+│   └── ui/                           # Reusable UI components
+│       ├── Button.tsx
+│       ├── Card.tsx
+│       ├── CollapsibleCard.tsx
+│       └── ProgressBar.tsx
 ├── lib/
-│ ├── services/ # Backend services
-│ │ ├── db.ts # Prisma client singleton
-│ │ ├── r2Storage.ts # Cloudflare R2 integration
-│ │ └── imageValidation.ts # Validation pipeline
-│ ├── types/ # TypeScript types
-│ │ └── image.ts # Image metadata types
-│ └── utils/ # Utilities
-│ ├── env.ts # Environment variable handling
-│ └── uploadClient.ts # Client-side upload helpers
+│   ├── services/                     # Backend services
+│   │   ├── db.ts                    # Prisma client singleton
+│   │   ├── r2Storage.ts             # Cloudflare R2 integration
+│   │   ├── imageValidation.ts       # Validation pipeline
+│   │   └── uploadProcessor.ts       # Upload verification & processing
+│   ├── types/                        # TypeScript types
+│   │   └── image.ts                 # Image metadata types
+│   ├── utils/                        # Utilities
+│   │   ├── env.ts                   # Environment variable handling
+│   │   ├── logger.ts                # Logging utilities
+│   │   └── uploadClient.ts          # Client-side upload helpers
+│   └── data/                         # Static data
+│       ├── photoRequirements.tsx
+│       └── photoRestrictions.tsx
 ├── prisma/
-│ └── schema.prisma # Database schema
-├── **tests**/
-│ └── upload-flow.test.ts # Integration tests
-└── docker-compose.yml # PostgreSQL service
-\`\`\`
+│   └── schema.prisma                # Database schema
+├── __tests__/
+│   ├── upload-flow.test.ts          # Integration tests
+│   └── idempotency.test.ts          # Idempotency tests
+└── docker-compose.yml               # PostgreSQL service
+```
 
 ---
 
@@ -314,36 +370,36 @@ aragon-image-upload/
 ### 1. Format Validation
 
 - **Check**: File MIME type is JPEG, PNG, or HEIC
-- **Rejection**: \`INVALID_FORMAT\`
+- **Rejection**: `INVALID_FORMAT`
 
 ### 2. File Size Validation
 
 - **Check**: File size between 50KB and 8MB
-- **Rejection**: \`FILE_TOO_SMALL\`
+- **Rejection**: `FILE_TOO_SMALL`
 
 ### 3. Resolution Validation
 
 - **Check**: Image dimensions ≥ 400×400px
-- **Rejection**: \`RESOLUTION_TOO_LOW\`
+- **Rejection**: `RESOLUTION_TOO_LOW`
 
 ### 4. Duplicate Detection
 
 - **Algorithm**: Perceptual hash (pHash) with Hamming distance
 - **Threshold**: Hamming distance ≤ 10 (configurable)
-- **Rejection**: \`DUPLICATE_IMAGE\`
+- **Rejection**: `DUPLICATE_IMAGE`
 
 ### 5. Blur Detection (Stub)
 
 - **Algorithm**: Edge variance using Sharp statistics
 - **Threshold**: Standard deviation < 10
-- **Rejection**: \`IMAGE_TOO_BLURRY\`
+- **Rejection**: `IMAGE_TOO_BLURRY`
 - **Note**: STUB - Production should use Laplacian variance
 
 ### 6. Face Detection (Stub)
 
 - **Status**: STUBBED with simulated results
 - **Expected**: AWS Rekognition or OpenCV integration
-- **Rejection**: \`MULTIPLE_FACES\`, \`FACE_TOO_SMALL\`
+- **Rejection**: `MULTIPLE_FACES`, `FACE_TOO_SMALL`
 - **Note**: Currently returns mock data for demonstration
 
 ---
@@ -355,61 +411,65 @@ aragon-image-upload/
 Request presigned URL for upload.
 
 **Request Body**:
-\`\`\`json
+
+```json
 {
-"filename": "photo.jpg",
-"contentType": "image/jpeg",
-"fileSize": 1024000
+  "filename": "photo.jpg",
+  "contentType": "image/jpeg",
+  "fileSize": 1024000
 }
-\`\`\`
+```
 
 **Response**:
-\`\`\`json
+
+```json
 {
-"imageId": "uuid",
-"uploadUrl": "https://...",
-"r2Key": "uploads/uuid.jpg",
-"expiresAt": "2024-01-01T00:05:00Z"
+  "imageId": "uuid",
+  "uploadUrl": "https://...",
+  "r2Key": "uploads/uuid.jpg",
+  "expiresAt": "2024-01-01T00:05:00Z"
 }
-\`\`\`
+```
 
 ### POST /api/uploads/complete
 
 Notify backend of upload completion.
 
 **Request Body**:
-\`\`\`json
+
+```json
 {
-"imageId": "uuid"
+  "imageId": "uuid"
 }
-\`\`\`
+```
 
 **Response**:
-\`\`\`json
+
+```json
 {
-"imageId": "uuid",
-"status": "VERIFYING",
-"message": "Upload verification started"
+  "imageId": "uuid",
+  "status": "VERIFYING",
+  "message": "Upload verification started"
 }
-\`\`\`
+```
 
 ### GET /api/images/:id
 
 Fetch single image status.
 
 **Response**:
-\`\`\`json
+
+```json
 {
-"id": "uuid",
-"status": "ACCEPTED",
-"filename": "uuid.jpg",
-"originalName": "photo.jpg",
-"width": 1920,
-"height": 1080,
-"rejectionReasons": [],
-...
+  "id": "uuid",
+  "status": "ACCEPTED",
+  "filename": "uuid.jpg",
+  "originalName": "photo.jpg",
+  "width": 1920,
+  "height": 1080,
+  "rejectionReasons": []
 }
-\`\`\`
+```
 
 ### GET /api/images
 
@@ -417,21 +477,21 @@ Fetch all images (optional status filter).
 
 **Query Parameters**:
 
-- \`status\` (optional): Filter by image status
+- `status` (optional): Filter by image status
 
 ---
 
 ## 🔨 Reused Configuration
 
-The following configuration files were reused from \`aragon-todo-app/\`:
+The following configuration files were reused from `aragon-todo-app/`:
 
-- \`docker-compose.yml\`: PostgreSQL service configuration
-- \`.prettierrc\`: Code formatting rules
-- \`.prettierignore\`: Prettier ignore patterns
-- \`jest.config.js\`: Jest testing configuration
-- \`jest.setup.js\`: Jest test environment setup
-- \`prisma.config.ts\`: Prisma configuration
-- \`postcss.config.mjs\`: PostCSS and Tailwind configuration
+- `docker-compose.yml`: PostgreSQL service configuration
+- `.prettierrc`: Code formatting rules
+- `.prettierignore`: Prettier ignore patterns
+- `jest.config.js`: Jest testing configuration
+- `jest.setup.js`: Jest test environment setup
+- `prisma.config.ts`: Prisma configuration
+- `postcss.config.mjs`: PostCSS and Tailwind configuration
 
 All configurations were adapted to fit the image upload platform's requirements.
 
