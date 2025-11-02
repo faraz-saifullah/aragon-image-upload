@@ -90,33 +90,6 @@ export default function Home() {
             </div>
             <div className="ml-3 text-xl font-semibold text-black">Aragon.ai</div>
           </div>
-
-          {/* Progress Bar */}
-          <div className="w-full max-w-[50%] px-5">
-            <div className="flex flex-row items-center justify-center gap-3">
-              <div className="relative h-[12px] w-full rounded-full bg-slate-200">
-                <div
-                  className="absolute left-0 top-0 h-full rounded-full transition-all duration-150"
-                  style={{
-                    width: `${Math.min((images.length / 10) * 100, 100)}%`,
-                    background: 'linear-gradient(90deg, #EB6002 0%, #FFB253 100%)',
-                  }}
-                ></div>
-              </div>
-            </div>
-          </div>
-
-          {/* Back Button (placeholder) */}
-          <div>
-            <svg
-              viewBox="0 0 96 96"
-              height="20"
-              width="20"
-              className="hover:cursor-pointer hover:opacity-80"
-            >
-              <path d="M20.4844,54H66a6,6,0,0,0,0-12H20.4844l7.7578-7.7578a5.9994,5.9994,0,0,0-8.4844-8.4844l-18,18a5.9979,5.9979,0,0,0,0,8.4844l18,18a5.9994,5.9994,0,1,0,8.4844-8.4844Z"></path>
-            </svg>
-          </div>
         </header>
       </div>
 
@@ -131,7 +104,7 @@ export default function Home() {
             />
 
             {/* Divider */}
-            <div className="hidden w-1 rounded-full bg-slate-200 md:flex"></div>
+            <div className="hidden w-1 h-[60vh] rounded-full bg-slate-200 md:flex"></div>
 
             {/* Right Panel - Uploaded Images */}
             <UploadedImagesPanel

@@ -35,6 +35,26 @@ body {
 :root {
   --background: #ffffff;
   --foreground: #171717;
+  /* Brand Colors */
+  --color-primary-dark: #eb6002;
+  --color-primary-main: #f97315;
+  --color-primary-light: #ffb253;
+
+  /* Success Colors */
+  --color-success-main: #01ac5e;
+  --color-success-light: #b8e6d5;
+  --color-success-bg: #e8f5f0;
+
+  /* Error Colors */
+  --color-error-main: #ff4e64;
+  --color-error-light: #ffd4cc;
+  --color-error-bg: #fff2f0;
+
+  /* Text Colors */
+  --color-text-primary: #1d1d1e;
+  --color-text-secondary: #282930;
+  --color-text-tertiary: #475569;
+  --color-text-muted: #64748b;
 }
 
 @theme inline {

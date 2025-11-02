@@ -3,8 +3,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/services/db';
-import { verifyWithRetry } from '@/lib/services/r2Storage';
-import { validateImage } from '@/lib/services/imageValidation';
+import { initiateUploadVerification } from '@/lib/services/uploadProcessor';
+import { toAppError } from '@/lib/errors/AppError';
+import { logger } from '@/lib/utils/logger';
 
 // Request validation schema
 const CompleteRequestSchema = z.object({
@@ -12,6 +13,7 @@ const CompleteRequestSchema = z.object({
 });
 
 export async function POST(request: NextRequest) {
+  let imageId: string | undefined;
   try {
     // Parse and validate request body
     const body = await request.json();
@@ -21,149 +23,54 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         {
           error: 'Invalid request',
-          details: validation.error.errors,
+          details: validation.error.issues,
         },
         { status: 400 }
       );
     }
 
-    const { imageId } = validation.data;
+    imageId = validation.data.imageId;
 
-    // Fetch image record
+    // Verify image exists
     const image = await prisma.image.findUnique({
       where: { id: imageId },
+      select: { id: true, status: true },
     });
 
     if (!image) {
       return NextResponse.json({ error: 'Image not found' }, { status: 404 });
     }
 
-    // Verify current state
-    if (image.status !== 'AWAITING_UPLOAD') {
-      return NextResponse.json(
-        {
-          error: 'Invalid state transition',
-          currentStatus: image.status,
-        },
-        { status: 400 }
-      );
+    // Initiate upload verification with idempotent state transition
+    // This function uses atomic updateMany to ensure idempotency
+    const result = await initiateUploadVerification(imageId);
+
+    // Return appropriate response based on whether processing was started
+    if (result.started) {
+      return NextResponse.json({
+        imageId,
+        status: result.currentStatus,
+        message: 'Upload verification started',
+      });
+    } else {
+      // Idempotent response: already processing or completed
+      return NextResponse.json({
+        imageId,
+        status: result.currentStatus,
+        message: 'Upload already processing or completed',
+      });
     }
-
-    // Update to VERIFYING state
-    await prisma.image.update({
-      where: { id: imageId },
-      data: {
-        status: 'VERIFYING',
-        uploadCompletedAt: new Date(),
-      },
-    });
-
-    // Verify upload with retry mechanism (async processing)
-    // This runs in the background to avoid blocking the response
-    processUploadVerification(imageId, image.r2Key, image.mimeType, image.fileSize || 0).catch(
-      (error) => {
-        console.error(`Error processing upload verification for ${imageId}:`, error);
-      }
-    );
-
-    return NextResponse.json({
-      imageId,
-      status: 'VERIFYING',
-      message: 'Upload verification started',
-    });
   } catch (error) {
-    console.error('Error completing upload:', error);
+    const appError = toAppError(error);
+    logger.error('Error completing upload', { imageId }, appError);
+
     return NextResponse.json(
       {
-        error: 'Internal server error',
-        message: error instanceof Error ? error.message : 'Unknown error',
+        error: appError.code,
+        message: appError.message,
+        retryable: appError.retryable,
       },
-      { status: 500 }
+      { status: appError.statusCode }
     );
-  }
-}
-
-/**
- * Background process for upload verification and validation
- */
-async function processUploadVerification(
-  imageId: string,
-  r2Key: string,
-  mimeType: string,
-  fileSize: number
-): Promise<void> {
-  try {
-    // Step 1: Verify upload exists in R2 with retry mechanism
-    console.log(`[${imageId}] Verifying upload to R2...`);
-
-    const uploadExists = await verifyWithRetry(r2Key);
-
-    await prisma.image.update({
-      where: { id: imageId },
-      data: {
-        verificationAttempts: { increment: 1 },
-        lastVerificationAt: new Date(),
-      },
-    });
-
-    if (!uploadExists) {
-      console.error(`[${imageId}] Upload verification failed after retries`);
-
-      await prisma.image.update({
-        where: { id: imageId },
-        data: {
-          status: 'UPLOAD_FAILED',
-          rejectionReasons: ['UPLOAD_VERIFICATION_FAILED'],
-        },
-      });
-
-      return;
-    }
-
-    console.log(`[${imageId}] Upload verified successfully`);
-
-    // Step 2: Update to PROCESSING state
-    await prisma.image.update({
-      where: { id: imageId },
-      data: {
-        status: 'PROCESSING',
-      },
-    });
-
-    // Step 3: Run validation pipeline
-    console.log(`[${imageId}] Running validation pipeline...`);
-
-    const validationResult = await validateImage(r2Key, mimeType, fileSize);
-
-    // Step 4: Update final status based on validation
-    const finalStatus = validationResult.isValid ? 'ACCEPTED' : 'REJECTED';
-
-    await prisma.image.update({
-      where: { id: imageId },
-      data: {
-        status: finalStatus,
-        rejectionReasons: validationResult.rejectionReasons.map((r) => r.toString()),
-        width: validationResult.metadata.width,
-        height: validationResult.metadata.height,
-        phash: validationResult.metadata.phash,
-        blurScore: validationResult.metadata.blurScore,
-        faceCount: validationResult.metadata.faceCount,
-        faceSize: validationResult.metadata.faceSize,
-        processedAt: new Date(),
-      },
-    });
-
-    console.log(`[${imageId}] Processing complete - Status: ${finalStatus}`);
-  } catch (error) {
-    console.error(`[${imageId}] Error during verification/validation:`, error);
-
-    // Mark as rejected with error
-    await prisma.image.update({
-      where: { id: imageId },
-      data: {
-        status: 'REJECTED',
-        rejectionReasons: ['PROCESSING_ERROR'],
-      },
-    });
   }
 }
