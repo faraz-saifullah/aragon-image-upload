@@ -1,0 +1,60 @@
+// Prisma schema for Aragon Image Upload Platform
+// State Machine: AWAITING_UPLOAD -> VERIFYING -> PROCESSING -> ACCEPTED/REJECTED/UPLOAD_FAILED
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum ImageStatus {
+  AWAITING_UPLOAD  // Initial state after presigned URL is issued
+  VERIFYING        // Backend is verifying upload to R2
+  PROCESSING       // Running validation pipeline
+  ACCEPTED         // All validations passed
+  REJECTED         // One or more validations failed
+  UPLOAD_FAILED    // Upload verification failed after retries
+}
+
+model Image {
+  id              String      @id @default(uuid())
+  filename        String
+  originalName    String
+  mimeType        String
+  fileSize        Int?        // in bytes
+  width           Int?
+  height          Int?
+  
+  // Storage information
+  r2Key           String      @unique  // Key in R2 bucket
+  r2Url           String?     // Public URL (if applicable)
+  
+  // State machine
+  status          ImageStatus @default(AWAITING_UPLOAD)
+  rejectionReasons String[]   @default([])  // Array of rejection reason codes
+  
+  // Validation metadata
+  phash           String?     // Perceptual hash for duplicate detection
+  blurScore       Float?      // Blur detection score (higher = sharper)
+  faceCount       Int?        // Number of faces detected
+  faceSize        Float?      // Size of detected face (0-1 scale)
+  
+  // Upload tracking
+  presignedUrlExpiry DateTime?
+  uploadCompletedAt  DateTime?
+  verificationAttempts Int @default(0)
+  lastVerificationAt   DateTime?
+  
+  // Timestamps
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  processedAt     DateTime?
+  
+  @@index([status])
+  @@index([createdAt])
+  @@index([phash])
+}
+
