@@ -12,18 +12,19 @@ interface UploadSectionProps {
   onStatusUpdate: (image: ImageMetadata) => void;
 }
 
-// interface UploadingFile {
-//   file: File;
-//   preview: string;
-//   progress: number;
-//   error?: string;
-// }
+interface UploadingFile {
+  file: File;
+  preview: string;
+  status: 'uploading' | 'processing' | 'complete' | 'error';
+  error?: string;
+  imageId?: string;
+}
 
 const ALLOWED_TYPES = upload.allowedTypes;
 const MAX_FILE_SIZE = upload.maxFileSize;
 
 export function UploadSection({ onUploadComplete, onStatusUpdate }: UploadSectionProps) {
-  // const [uploadingFiles, setUploadingFiles] = useState<Map<string, UploadingFile>>(new Map());
+  const [uploadingFiles, setUploadingFiles] = useState<Map<string, UploadingFile>>(new Map());
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -47,20 +48,89 @@ export function UploadSection({ onUploadComplete, onStatusUpdate }: UploadSectio
 
       for (const file of filesToUpload) {
         const error = validateFile(file);
+        const key = `${file.name}-${Date.now()}`;
+        const preview = URL.createObjectURL(file);
 
         if (error) {
-          console.error(`Validation error for ${file.name}:`, error);
+          // Show error in UI
+          setUploadingFiles((prev) =>
+            new Map(prev).set(key, {
+              file,
+              preview,
+              status: 'error',
+              error,
+            })
+          );
           continue;
         }
 
+        // Add to uploading files
+        setUploadingFiles((prev) =>
+          new Map(prev).set(key, {
+            file,
+            preview,
+            status: 'uploading',
+          })
+        );
+
         try {
+          // Upload to R2 (progress callback no longer needed for UI)
           const imageId = await uploadImageToR2(file, () => {
-            // Progress callback - could be used to show upload progress
+            // Progress callback - not displayed in UI
           });
 
-          pollImageStatus(imageId, onUploadComplete, onStatusUpdate);
+          // Upload complete, now processing
+          setUploadingFiles((prev) => {
+            const current = prev.get(key);
+            if (current) {
+              return new Map(prev).set(key, {
+                ...current,
+                status: 'processing',
+                imageId,
+              });
+            }
+            return prev;
+          });
+
+          // Poll for status and remove from uploading when complete
+          pollImageStatus(
+            imageId,
+            (image) => {
+              // Remove from uploading files when accepted
+              setUploadingFiles((prev) => {
+                const newMap = new Map(prev);
+                newMap.delete(key);
+                return newMap;
+              });
+              onUploadComplete(image);
+            },
+            (image) => {
+              // Keep showing status during processing
+              onStatusUpdate(image);
+
+              // Remove from uploading files when rejected or failed
+              if (image.status === 'REJECTED' || image.status === 'UPLOAD_FAILED') {
+                setUploadingFiles((prev) => {
+                  const newMap = new Map(prev);
+                  newMap.delete(key);
+                  return newMap;
+                });
+              }
+            }
+          );
         } catch (error) {
           console.error(`Upload error for ${file.name}:`, error);
+          setUploadingFiles((prev) => {
+            const current = prev.get(key);
+            if (current) {
+              return new Map(prev).set(key, {
+                ...current,
+                status: 'error',
+                error: error instanceof Error ? error.message : 'Upload failed',
+              });
+            }
+            return prev;
+          });
         }
       }
     },
@@ -180,6 +250,100 @@ export function UploadSection({ onUploadComplete, onStatusUpdate }: UploadSectio
             </div>
           </label>
         </div>
+
+        {/* Uploading Files Progress */}
+        {uploadingFiles.size > 0 && (
+          <div className="mt-4 w-full rounded-lg border border-solid border-gray-300 !pb-0">
+            {/* Accordion Header */}
+            <div className="border-b">
+              <button
+                type="button"
+                className="flex w-full flex-1 items-center justify-between px-4 pb-2 pt-3 font-medium transition-all hover:no-underline"
+              >
+                <div className="flex w-full items-center gap-2 tabular-nums">
+                  <span className="font-bold text-black">
+                    Uploading {uploadingFiles.size} {uploadingFiles.size === 1 ? 'photo' : 'photos'}
+                  </span>
+                </div>
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="24"
+                  height="24"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="h-6 w-6 shrink-0 stroke-black"
+                >
+                  <path d="m6 9 6 6 6-6"></path>
+                </svg>
+              </button>
+            </div>
+
+            {/* Subtext */}
+            <div className="flex w-full items-center justify-between px-5 py-2 tabular-nums">
+              <span className="text-sm text-gray-600">It can take up to 1 minute to upload</span>
+            </div>
+
+            {/* Uploading Items */}
+            <div className="p-2">
+              <div className="flex w-full flex-col items-center gap-0 rounded-lg border border-solid border-gray-300 !pb-0">
+                {Array.from(uploadingFiles.entries()).map(([key, uploadFile]) => (
+                  <div
+                    key={key}
+                    className="flex h-fit max-h-28 w-full flex-row items-center justify-center gap-2 bg-stone-50 p-2 shadow-sm"
+                  >
+                    {/* Left side: Preview + Filename */}
+                    <div className="relative flex h-full min-w-0 flex-1 items-center justify-start gap-2">
+                      {/* Image Preview */}
+                      <div className="relative flex aspect-square h-10 items-center">
+                        <div className="h-10 w-10 overflow-hidden rounded-md border border-solid border-gray-300">
+                          <img
+                            src={uploadFile.preview}
+                            alt={uploadFile.file.name}
+                            className="h-full w-full object-cover"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Filename */}
+                      <div className="flex flex-col gap-0.5 pr-0.5 text-left text-sm md:w-36">
+                        <div className="truncate text-gray-900">{uploadFile.file.name}</div>
+                        {/* Error Status */}
+                        {uploadFile.status === 'error' && (
+                          <div className="text-xs text-red-600">{uploadFile.error}</div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Right side: Spinner */}
+                    <div className="flex flex-row items-center justify-center gap-1">
+                      {(uploadFile.status === 'uploading' ||
+                        uploadFile.status === 'processing') && (
+                          <div className="mr-2 h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-solid border-l-stone-200 border-r-orange-500 border-t-orange-500 border-b-orange-500" />
+                        )}
+                      {uploadFile.status === 'error' && (
+                        <svg
+                          className="mr-2 h-5 w-5 text-red-500"
+                          fill="currentColor"
+                          viewBox="0 0 20 20"
+                        >
+                          <path
+                            fillRule="evenodd"
+                            d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"
+                            clipRule="evenodd"
+                          />
+                        </svg>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Upload from Mobile - Commented out for now */}
         {/* <div className="flex w-full flex-col items-center text-sm text-black">

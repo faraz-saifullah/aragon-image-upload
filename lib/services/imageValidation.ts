@@ -1,15 +1,12 @@
 // Image validation service
 // Performs comprehensive validation checks on uploaded images
 import sharp from 'sharp';
-import { imageHash } from 'image-hash';
-import { promisify } from 'util';
+import { blockhashData } from 'blockhash-core';
 import { prisma } from '@/lib/services/db';
 import { env } from '@/lib/utils/env';
 import { RejectionReason, ValidationResult } from '@/lib/types/image';
 import { r2Client } from '@/lib/services/r2Storage';
 import { GetObjectCommand } from '@aws-sdk/client-s3';
-
-const imageHashAsync = promisify(imageHash);
 
 /**
  * Validate image format
@@ -44,14 +41,20 @@ async function validateResolution(imageBuffer: Buffer): Promise<{
 }
 
 /**
- * Calculate perceptual hash (pHash) for duplicate detection
+ * Calculate perceptual hash (pHash) for duplicate detection using blockhash
  */
 async function calculatePHash(imageBuffer: Buffer): Promise<string> {
-  // Convert buffer to base64 for image-hash library
-  const base64Data = imageBuffer.toString('base64');
-  const dataUri = `data:image/jpeg;base64,${base64Data}`;
+  // Resize image to a standard size for consistent hashing
+  const resized = await sharp(imageBuffer)
+    .resize(256, 256, { fit: 'fill' })
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
 
-  return imageHashAsync(dataUri, 16, true) as Promise<string>;
+  // Calculate blockhash with 16 bits (produces 16-character hex string)
+  const hash = blockhashData(resized.data, resized.info.width, resized.info.height, 16);
+
+  return hash;
 }
 
 /**
